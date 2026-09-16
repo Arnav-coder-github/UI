@@ -21,18 +21,34 @@
 
 // ============================================================
 // BACKEND ENDPOINTS
+// ------------------------------------------------------------
+// Loaded from config.js (keep in sync with Common/Config/url_config.json).
+// Vercel hosts only this UI; ASR/LLM/TTS stay on ngrok/Colab.
 // ============================================================
+const _auraCfg = window.AURA_CONFIG || {};
 const ASR_URL =
+  _auraCfg.asrUrl ||
   "https://cherelle-sandiest-voluminously.ngrok-free.dev/transcribe_stream";
-
 const TTS_SOCKET_URL =
+  _auraCfg.ttsSocketUrl ||
   "https://dizygotic-marlyn-disobediently.ngrok-free.dev";
+const NGROK_SKIP = _auraCfg.ngrokSkipBrowserWarning || "69420";
 
 // ============================================================
-// SOCKET
+// SOCKET  (TTS → UI audio)
 // ============================================================
 const socket = io(TTS_SOCKET_URL, {
   transports: ["websocket", "polling"],
+  extraHeaders: {
+    "ngrok-skip-browser-warning": NGROK_SKIP,
+  },
+  transportOptions: {
+    polling: {
+      extraHeaders: {
+        "ngrok-skip-browser-warning": NGROK_SKIP,
+      },
+    },
+  },
 });
 
 // ============================================================
@@ -1471,10 +1487,8 @@ function sendToASR(int16Audio) {
       "Content-Type":   "application/octet-stream",
       "X-Audio-Format": "int16-le",
       "X-Sample-Rate":  "16000",
-      // NLLB code: the orchestrator uses this to decide which way to
-      // translate.  The ASR service forwards it verbatim on the
-      // asr_input Socket.IO event.
       "X-Language":     lang,
+      "ngrok-skip-browser-warning": NGROK_SKIP,
     },
     body: int16Audio.buffer,
     keepalive: false,
