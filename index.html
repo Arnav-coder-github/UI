@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Interaction · AURA</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+  <style>
+    /* ============================================================
+       BASE
+    ============================================================ */
+    *{ box-sizing:border-box; margin:0; padding:0; }
+
+    :root{
+      --c-bg-0:        #02030a;
+      --c-bg-1:        #050b1f;
+      --c-bg-2:        #0a1733;
+      --c-cyan:        #22d3ee;
+      --c-cyan-soft:   #67e8f9;
+      --c-blue:        #3b82f6;
+      --c-indigo:      #818cf8;
+      --c-magenta:     #f472b6;
+      --c-amber:       #fbbf24;
+      --c-green:       #34d399;
+      --c-red:         #f87171;
+      --c-text:        #e0f2fe;
+      --c-text-dim:    #7891b8;
+      --c-panel:       rgba(8, 18, 40, 0.55);
+      --c-panel-edge:  rgba(34, 211, 238, 0.22);
+      --c-glow:        rgba(34, 211, 238, 0.35);
+      --font-display:  'Orbitron', 'Rajdhani', sans-serif;
+      --font-ui:       'Rajdhani', sans-serif;
+      --font-mono:     'JetBrains Mono', monospace;
+    }
+
+    html, body{
+      height:100%;
+      width:100%;
+      overflow:hidden;
+      background:#000;
+      color:var(--c-text);
+      font-family:var(--font-ui);
+      -webkit-font-smoothing:antialiased;
+      cursor:default;
+    }
+
+    /* ============================================================
+       BACKDROP LAYERS  (gradient + grid + vignette + particles)
+    ============================================================ */
+    .backdrop{
+      position:fixed; inset:0; z-index:0;
+      background:
+        radial-gradient(ellipse at 50% 30%, #0e244a 0%, #050b1f 45%, #02030a 100%);
+    }
+
+    .grid-overlay{
+      position:fixed; inset:0; z-index:1; pointer-events:none;
+      background-image:
+        linear-gradient(rgba(34,211,238,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34,211,238,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(circle at center, black 30%, transparent 75%);
+      -webkit-mask-image: radial-gradient(circle at center, black 30%, transparent 75%);
+    }
+
+    .vignette{
+      position:fixed; inset:0; z-index:2; pointer-events:none;
+      background:
+        radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.85) 100%);
+    }
+
+    #particlesCanvas{
+      position:fixed; inset:0; z-index:3; pointer-events:none;
+    }
+
+    .scanline{
+      position:fixed; inset:0; z-index:4; pointer-events:none;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          rgba(255,255,255,0.015) 0px,
+          rgba(255,255,255,0.015) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+      mix-blend-mode:overlay;
+    }
+
+    /* ============================================================
+       MAIN LAYOUT
+    ============================================================ */
+    .stage{
+      position:fixed; inset:0; z-index:10;
+      display:grid;
+      grid-template-rows: 64px 1fr 250px;
+      grid-template-columns: 280px 1fr 280px;
+      grid-template-areas:
+        "header header header"
+        "left   center right"
+        "footer footer footer";
+      gap:14px;
+      padding:14px 18px;
+    }
+
+    /* ============================================================
+       HEADER BAR
+    ============================================================ */
+    .header{
+      grid-area:header;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 22px;
+      background:var(--c-panel);
+      border:1px solid var(--c-panel-edge);
+      border-radius:6px;
+      backdrop-filter:blur(12px);
+      position:relative;
+      overflow:visible;
+      z-index:30;
+    }
+
+    .header::before{
+      content:""; position:absolute; left:0; top:0; height:2px; width:100%;
+      background:linear-gradient(90deg, transparent, var(--c-cyan), transparent);
+      animation: sweep 4s linear infinite;
+      pointer-events:none;
+      border-radius:6px 6px 0 0;
+      overflow:hidden;
+    }
+    @keyframes sweep { 0%{transform:translateX(-100%);} 100%{transform:translateX(100%);} }
+
+    .brand-mark{
+      width:38px; height:38px;
+      display:flex; align-items:center; justify-content:center;
+      border:1px solid var(--c-cyan);
+      border-radius:50%;
+      box-shadow: 0 0 18px var(--c-glow), inset 0 0 12px var(--c-glow);
+      position:relative;
+      flex-shrink:0;
+    }
+    .brand-mark::before, .brand-mark::after{
+      content:""; position:absolute; inset:-6px;
+      border:1px solid rgba(34,211,238,0.25);
+      border-radius:50%;
+      animation: rotate 12s linear infinite;
+      pointer-events:none;
+    }
+    .brand-mark::after{
+      inset:-12px;
+      border-style:dashed;
+      animation-duration:25s;
+      animation-direction:reverse;
+    }
+    @keyframes rotate { to { transform:rotate(360deg); } }
+
+    .brand-mark span{
+      font-family:var(--font-display);
+      font-weight:800;
+      font-size:18px;
+      color:var(--c-cyan);
+      text-shadow:0 0 8px var(--c-glow);
+    }
+
+    /* Product switcher — same pattern as Meetly / Conversation AI */
+    .product-wrap{
+      position:relative;
+      z-index:50;
+    }
+    .product-current{
+      display:grid;
+      grid-template-columns:38px minmax(0,1fr) 16px;
+      gap:12px;
+      align-items:center;
+      min-width:220px;
+      padding:4px 8px 4px 4px;
+      border:0;
+      border-radius:10px;
+      background:transparent;
+      color:var(--c-text);
+      cursor:pointer;
+      font-family:var(--font-ui);
+      text-align:left;
+    }
+    .product-current:hover,
+    .product-current[aria-expanded="true"]{
+      background:rgba(34,211,238,0.08);
+    }
+    .product-copy{
+      display:flex;
+      flex-direction:column;
+      min-width:0;
+    }
+    .product-copy strong{
+      font-family:var(--font-display);
+      font-size:15px;
+      font-weight:700;
+      letter-spacing:4px;
+      color:var(--c-text);
+    }
+    .product-copy small{
+      margin-top:2px;
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:1.5px;
+      text-transform:uppercase;
+      color:var(--c-text-dim);
+    }
+    .product-chevron{
+      color:var(--c-text-dim);
+      font-size:12px;
+      transition:transform .18s ease, color .18s ease;
+    }
+    .product-current:hover .product-chevron,
+    .product-current[aria-expanded="true"] .product-chevron{
+      color:var(--c-cyan);
+    }
+    .product-current[aria-expanded="true"] .product-chevron{
+      transform:rotate(180deg);
+    }
+    .product-menu{
+      display:none;
+      position:absolute;
+      top:calc(100% + 10px);
+      left:0;
+      width:280px;
+      padding:8px;
+      border:1px solid rgba(34,211,238,0.28);
+      border-radius:12px;
+      background:rgba(6,12,28,0.98);
+      box-shadow:0 20px 48px rgba(0,0,0,0.55);
+    }
+    .product-menu.open{ display:block; }
+    .product-menu > small{
+      display:block;
+      padding:6px 8px 8px;
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:1.2px;
+      text-transform:uppercase;
+      color:var(--c-text-dim);
+    }
+    .product-menu button{
+      width:100%;
+      padding:9px 8px;
+      display:grid;
+      grid-template-columns:34px 1fr 16px;
+      gap:10px;
+      align-items:center;
+      text-align:left;
+      border:0;
+      border-radius:9px;
+      background:transparent;
+      color:var(--c-text);
+      cursor:pointer;
+      font-family:var(--font-ui);
+    }
+    .product-menu button:hover{
+      background:rgba(34,211,238,0.1);
+    }
+    .product-menu button.selected{
+      background:rgba(34,211,238,0.14);
+    }
+    .product-icon{
+      width:34px;
+      height:34px;
+      display:grid;
+      place-items:center;
+      border-radius:9px;
+      font-family:var(--font-display);
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:0.4px;
+    }
+    .product-icon.meetly{
+      color:#ddd6fe;
+      background:rgba(139,92,246,0.22);
+    }
+    .product-icon.annotate{
+      color:#bfdbfe;
+      background:rgba(59,130,246,0.22);
+    }
+    .product-icon.aura{
+      color:var(--c-cyan);
+      background:rgba(34,211,238,0.18);
+    }
+    .product-menu button > span:nth-child(2){
+      display:flex;
+      flex-direction:column;
+      min-width:0;
+    }
+    .product-menu strong{
+      font-size:13px;
+      font-weight:700;
+      letter-spacing:0.2px;
+    }
+    .product-menu em{
+      margin-top:2px;
+      font-style:normal;
+      font-size:11px;
+      color:var(--c-text-dim);
+    }
+    .product-menu .trail{
+      color:var(--c-text-dim);
+      font-size:12px;
+      text-align:right;
+    }
+    .product-menu button.selected .trail{
+      color:var(--c-cyan);
+    }
+
+    .header-stats{
+      display:flex; gap:24px; align-items:center;
+      font-family:var(--font-mono);
+      font-size:11px;
+      color:var(--c-text-dim);
+      letter-spacing:1.5px;
+    }
+    .header-stats .stat{
+      display:flex; flex-direction:column; align-items:flex-end;
+    }
+    .header-stats .stat .v{
+      color:var(--c-cyan); font-weight:600; font-size:13px;
+      text-shadow:0 0 6px var(--c-glow);
+    }
+
+    .pulse-dot{
+      width:8px; height:8px; border-radius:50%;
+      background:var(--c-green);
+      box-shadow:0 0 10px var(--c-green);
+      animation:dotPulse 1.6s ease-in-out infinite;
+    }
+    @keyframes dotPulse{
+      0%,100%{ transform:scale(1); opacity:1; }
+      50%    { transform:scale(0.6); opacity:0.4; }
+    }
+
+    @media (max-width: 900px){
+      .header-stats .stat:nth-child(2),
+      .header-stats .stat:nth-child(3){ display:none; }
+      .product-current{ min-width:0; }
+    }
+
+    /* ============================================================
+       HUD SIDE PANELS
+    ============================================================ */
+    .hud-panel{
+      background:var(--c-panel);
+      border:1px solid var(--c-panel-edge);
+      backdrop-filter:blur(12px);
+      border-radius:6px;
+      padding:16px;
+      position:relative;
+      overflow:hidden;
+      display:flex; flex-direction:column; gap:14px;
+    }
+
+    .hud-panel::before{
+      content:""; position:absolute; top:0; left:14px; right:14px; height:1px;
+      background:linear-gradient(90deg, transparent, var(--c-cyan), transparent);
+    }
+
+    .hud-panel.left{  grid-area:left;  }
+    .hud-panel.right{ grid-area:right; }
+
+    .hud-section{
+      border:1px solid rgba(34,211,238,0.12);
+      border-radius:4px;
+      padding:10px 12px;
+      position:relative;
+      background:rgba(2,6,18,0.4);
+    }
+    .hud-section .label{
+      font-family:var(--font-mono);
+      font-size:9.5px;
+      letter-spacing:2.5px;
+      color:var(--c-text-dim);
+      text-transform:uppercase;
+      margin-bottom:8px;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .hud-section .label::after{
+      content:""; flex:1; margin-left:8px; height:1px;
+      background:linear-gradient(90deg, var(--c-panel-edge), transparent);
+    }
+    .hud-section .value{
+      font-family:var(--font-display);
+      font-size:22px;
+      font-weight:600;
+      color:var(--c-cyan);
+      letter-spacing:1.5px;
+      text-shadow:0 0 12px var(--c-glow);
+    }
+    .hud-section .value.small{
+      font-size:14px;
+      letter-spacing:2px;
+    }
+    .hud-section .sub{
+      font-family:var(--font-mono);
+      font-size:10px;
+      color:var(--c-text-dim);
+      margin-top:4px;
+      letter-spacing:1px;
+    }
+
+    /* Mode pill */
+    .mode-pill{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:6px 12px;
+      border:1px solid var(--c-cyan);
+      border-radius:999px;
+      font-family:var(--font-display);
+      font-size:11px;
+      letter-spacing:3px;
+      color:var(--c-cyan);
+      background:rgba(34,211,238,0.06);
+      text-shadow:0 0 6px var(--c-glow);
+      box-shadow:0 0 12px rgba(34,211,238,0.18);
+      transition:all .3s ease;
+    }
+    .mode-pill .dot{
+      width:8px; height:8px; border-radius:50%;
+      background:var(--c-cyan);
+      box-shadow:0 0 8px var(--c-cyan);
+      animation:dotPulse 1.4s ease-in-out infinite;
+    }
+    .mode-pill.listening{ border-color:var(--c-green); color:var(--c-green); text-shadow:0 0 6px var(--c-green); box-shadow:0 0 14px rgba(52,211,153,0.3); }
+    .mode-pill.listening .dot{ background:var(--c-green); box-shadow:0 0 8px var(--c-green); }
+    .mode-pill.thinking { border-color:var(--c-amber); color:var(--c-amber); text-shadow:0 0 6px var(--c-amber); }
+    .mode-pill.thinking  .dot{ background:var(--c-amber); box-shadow:0 0 8px var(--c-amber); }
+    .mode-pill.speaking { border-color:var(--c-magenta); color:var(--c-magenta); text-shadow:0 0 6px var(--c-magenta); }
+    .mode-pill.speaking  .dot{ background:var(--c-magenta); box-shadow:0 0 8px var(--c-magenta); }
+
+    /* Mini bar chart */
+    .mini-bars{
+      display:flex; align-items:flex-end; gap:3px; height:32px;
+    }
+    .mini-bars .mb{
+      flex:1; height:30%;
+      background:linear-gradient(to top, var(--c-cyan), var(--c-indigo));
+      border-radius:1px;
+      transition: height .12s linear;
+      box-shadow:0 0 6px rgba(34,211,238,0.4);
+    }
+
+    /* SVG radar */
+    .radar{
+      position:relative;
+      width:100%;
+      aspect-ratio:1;
+      border-radius:50%;
+      border:1px solid var(--c-panel-edge);
+      overflow:hidden;
+      background:radial-gradient(circle at center, rgba(34,211,238,0.05), transparent 70%);
+    }
+    .radar::before, .radar::after{
+      content:""; position:absolute; inset:18%;
+      border:1px solid rgba(34,211,238,0.18);
+      border-radius:50%;
+    }
+    .radar::after{ inset:36%; }
+    .radar .sweep{
+      position:absolute; inset:0;
+      background: conic-gradient(from 0deg, transparent 75%, rgba(34,211,238,0.45) 95%, var(--c-cyan) 100%);
+      animation: rotate 3.5s linear infinite;
+      border-radius:50%;
+    }
+    .radar .cross{
+      position:absolute; inset:0;
+    }
+    .radar .cross::before, .radar .cross::after{
+      content:""; position:absolute;
+      background:rgba(34,211,238,0.18);
+    }
+    .radar .cross::before{ left:50%; top:0; bottom:0; width:1px; }
+    .radar .cross::after { top:50%; left:0; right:0; height:1px; }
+
+    .net-graph{
+      width:100%; height:60px;
+      display:block;
+    }
+
+    /* ============================================================
+       CENTER -- THE ORB
+    ============================================================ */
+    .center{
+      grid-area:center;
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      overflow:hidden;
+    }
+
+    #orbCanvas{
+      position:absolute;
+      width:100%; height:100%;
+      top:0; left:0;
+    }
+
+    .rings{
+      position:absolute;
+      width: min(560px, 70vh);
+      height:min(560px, 70vh);
+      pointer-events:none;
+    }
+    .rings svg{
+      position:absolute;
+      inset:0;
+      width:100%; height:100%;
+    }
+    .ring-rot-slow { animation: rotate 30s linear infinite; }
+    .ring-rot-mid  { animation: rotate 14s linear infinite reverse; }
+    .ring-rot-fast { animation: rotate  8s linear infinite; }
+
+    /* .orb-status is no longer used (the pipeline + status moved into the
+       transcript header). The rule is kept defensive in case any code
+       still references it. */
+    .orb-status{
+      display:none;
+    }
+
+    /* ============================================================
+       PIPELINE PHASE TRACKER (under the orb)
+    ============================================================ */
+    .pipeline{
+      display:flex;
+      align-items:center;
+      gap:0;
+      width:100%;
+      padding:6px 14px;
+      background:rgba(2,6,18,0.55);
+      border:1px solid var(--c-panel-edge);
+      border-radius:999px;
+      backdrop-filter:blur(8px);
+    }
+    .ph{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      flex:1;
+      font-family:var(--font-mono);
+      font-size:9.5px;
+      letter-spacing:2px;
+      color:var(--c-text-dim);
+      text-transform:uppercase;
+      transition: color .25s ease;
+    }
+    .ph .ph-dot{
+      width:9px; height:9px;
+      border-radius:50%;
+      background:rgba(120,145,184,0.25);
+      border:1px solid rgba(120,145,184,0.35);
+      transition: all .25s ease;
+      flex-shrink:0;
+    }
+    .ph-line{
+      flex:1;
+      height:1px;
+      background:linear-gradient(90deg, rgba(120,145,184,0.25), rgba(120,145,184,0.05));
+      transition: background .25s ease;
+    }
+    .ph.active{ color:var(--c-cyan); }
+    .ph.active .ph-dot{
+      background:var(--c-cyan);
+      border-color:var(--c-cyan);
+      box-shadow:0 0 12px var(--c-cyan), 0 0 20px rgba(34,211,238,0.4);
+      animation: phPulse 1.1s ease-in-out infinite;
+    }
+    @keyframes phPulse{
+      0%,100%{ transform:scale(1); }
+      50%    { transform:scale(1.35); }
+    }
+    .ph.done{ color:var(--c-cyan); opacity:0.55; }
+    .ph.done .ph-dot{
+      background:var(--c-cyan);
+      border-color:var(--c-cyan);
+      box-shadow:0 0 5px var(--c-cyan);
+    }
+    .ph-line.lit{
+      background:linear-gradient(90deg, var(--c-cyan), rgba(34,211,238,0.2));
+      box-shadow:0 0 6px var(--c-cyan);
+    }
+    /* These two used to live under the orb; now they live in the
+       transcript header. Sizes are tighter. */
+    .statusTextClass{
+      font-family:var(--font-display);
+      font-size:11px;
+      letter-spacing:4px;
+      color:var(--c-cyan);
+      text-shadow:0 0 8px var(--c-glow);
+      text-transform:uppercase;
+    }
+    .live-tag{
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:2px;
+      color:var(--c-text-dim);
+      white-space:nowrap;
+    }
+
+    /* ============================================================
+       THINKING ORBIT RING (only visible while LLM is processing)
+    ============================================================ */
+    .thinking-orbit{
+      position:absolute;
+      width:min(640px, 80vh);
+      height:min(640px, 80vh);
+      pointer-events:none;
+      opacity:0;
+      transition: opacity .35s ease;
+    }
+    .thinking-orbit.on{ opacity:1; }
+    .thinking-orbit svg{
+      width:100%; height:100%;
+      animation: rotate 2.4s linear infinite;
+    }
+    .thinking-orbit .satellite{
+      position:absolute;
+      top:50%; left:50%;
+      width:14px; height:14px;
+      margin:-7px 0 0 -7px;
+      border-radius:50%;
+      background:var(--c-amber);
+      box-shadow:0 0 14px var(--c-amber), 0 0 30px rgba(251,191,36,0.45);
+      animation: orbit 2.4s linear infinite;
+    }
+    .thinking-orbit .satellite.b{
+      background:var(--c-cyan);
+      box-shadow:0 0 14px var(--c-cyan), 0 0 30px rgba(34,211,238,0.45);
+      animation: orbit 3.6s linear infinite reverse;
+      animation-delay: -1.2s;
+    }
+    @keyframes orbit{
+      from { transform: rotate(0deg)   translateX(min(280px, 35vh)) rotate(0deg); }
+      to   { transform: rotate(360deg) translateX(min(280px, 35vh)) rotate(-360deg); }
+    }
+
+    /* ============================================================
+       LATENCY WIDGET
+    ============================================================ */
+    .lat-grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .lat-cell{
+      border:1px solid rgba(34,211,238,0.12);
+      border-radius:3px;
+      padding:6px 8px;
+      background:rgba(2,6,18,0.4);
+    }
+    .lat-cell .k{
+      font-family:var(--font-mono);
+      font-size:8.5px;
+      letter-spacing:1.8px;
+      color:var(--c-text-dim);
+      text-transform:uppercase;
+    }
+    .lat-cell .v{
+      font-family:var(--font-display);
+      font-size:18px;
+      font-weight:600;
+      color:var(--c-cyan);
+      text-shadow:0 0 8px var(--c-glow);
+      letter-spacing:1.2px;
+      margin-top:2px;
+    }
+    .lat-cell .v.amber{ color:var(--c-amber); text-shadow:0 0 8px rgba(251,191,36,0.5); }
+    .lat-cell .v.red  { color:var(--c-red);   text-shadow:0 0 8px rgba(248,113,113,0.5); }
+    .lat-cell .v.green{ color:var(--c-green); text-shadow:0 0 8px rgba(52,211,153,0.5);  }
+
+    .lat-spark{
+      width:100%;
+      height:36px;
+      display:block;
+    }
+    .lat-spark .gridline{
+      stroke: rgba(34,211,238,0.10);
+      stroke-width: 0.4;
+    }
+
+    /* ============================================================
+       AI MESSAGE LATENCY BADGE
+    ============================================================ */
+    .lat-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:5px;
+      margin-top:6px;
+      padding:2px 8px;
+      border:1px solid rgba(34,211,238,0.35);
+      border-radius:999px;
+      background:rgba(34,211,238,0.06);
+      font-family:var(--font-mono);
+      font-size:9.5px;
+      letter-spacing:1.5px;
+      color:var(--c-cyan);
+      width:fit-content;
+    }
+    .lat-badge .bolt{
+      width:7px; height:7px;
+      border-radius:50%;
+      background:var(--c-cyan);
+      box-shadow:0 0 6px var(--c-cyan);
+    }
+    .lat-badge.amber{ border-color:rgba(251,191,36,0.4); color:var(--c-amber); background:rgba(251,191,36,0.06); }
+    .lat-badge.amber .bolt{ background:var(--c-amber); box-shadow:0 0 6px var(--c-amber); }
+    .lat-badge.red{ border-color:rgba(248,113,113,0.4); color:var(--c-red); background:rgba(248,113,113,0.06); }
+    .lat-badge.red .bolt{ background:var(--c-red); box-shadow:0 0 6px var(--c-red); }
+
+    /* Thinking placeholder bubble */
+    .message.ai.thinking{
+      padding-right:24px;
+    }
+    .message.ai.thinking .think-dots{
+      display:inline-flex;
+      gap:5px;
+      margin-left:6px;
+      vertical-align:middle;
+    }
+    .message.ai.thinking .think-dots span{
+      width:6px; height:6px;
+      border-radius:50%;
+      background:var(--c-cyan);
+      box-shadow:0 0 8px var(--c-cyan);
+      animation: tdot 1.2s ease-in-out infinite;
+    }
+    .message.ai.thinking .think-dots span:nth-child(2){ animation-delay: .15s; }
+    .message.ai.thinking .think-dots span:nth-child(3){ animation-delay: .30s; }
+    @keyframes tdot{
+      0%,100%{ transform:translateY(0); opacity:0.4; }
+      50%    { transform:translateY(-5px); opacity:1; }
+    }
+
+    .corner{
+      position:absolute;
+      width:60px; height:60px;
+      border:1px solid var(--c-cyan);
+      opacity:0.7;
+    }
+    .corner.tl{ top:18px; left:18px;     border-right:none; border-bottom:none; }
+    .corner.tr{ top:18px; right:18px;    border-left:none;  border-bottom:none; }
+    .corner.bl{ bottom:18px; left:18px;  border-right:none; border-top:none;    }
+    .corner.br{ bottom:18px; right:18px; border-left:none;  border-top:none;    }
+
+    /* ============================================================
+       FOOTER -- voice bars + transcript + controls
+    ============================================================ */
+    .footer{
+      grid-area:footer;
+      display:grid;
+      grid-template-columns: 1fr 280px;
+      gap:14px;
+    }
+
+    .transcript-wrap{
+      background:var(--c-panel);
+      border:1px solid var(--c-panel-edge);
+      border-radius:6px;
+      backdrop-filter:blur(12px);
+      padding:12px 16px;
+      display:flex; flex-direction:column;
+      position:relative;
+      overflow:hidden;
+    }
+    .transcript-head{
+      display:flex; justify-content:space-between; align-items:center;
+      font-family:var(--font-ui);
+      font-size:13px;
+      letter-spacing:0.2px;
+      color:var(--c-text-dim);
+      padding-bottom:10px;
+      gap:14px;
+      border-bottom:1px solid rgba(34,211,238,0.12);
+      margin-bottom:8px;
+      flex-wrap:wrap;
+    }
+    .transcript-head .th-left,
+    .transcript-head .th-right{
+      display:flex; align-items:center; gap:10px;
+      flex-shrink:0;
+      min-width:0;
+    }
+    .transcript-head .th-right{ justify-content:flex-end; flex-wrap:wrap; }
+    .transcript-head .th-title{
+      font-family:var(--font-display);
+      font-size:12px;
+      letter-spacing:2px;
+      color:var(--c-text);
+      text-transform:uppercase;
+    }
+    .transcript-head .th-count{
+      color:var(--c-text-dim);
+      font-family:var(--font-mono);
+      font-size:10px;
+      letter-spacing:1px;
+    }
+    .transcript-head .th-status-block{
+      display:flex; flex-direction:column; align-items:flex-end; gap:2px;
+      min-width:120px;
+    }
+    .transcript-head .th-status{
+      font-family:var(--font-display);
+      font-size:11px;
+      letter-spacing:2px;
+      color:var(--c-cyan);
+      text-shadow:0 0 8px var(--c-glow);
+    }
+    .transcript-empty{
+      margin:auto;
+      padding:18px 12px;
+      text-align:center;
+      color:var(--c-text-dim);
+      font-size:14px;
+      line-height:1.5;
+      max-width:340px;
+    }
+    .transcript-empty strong{
+      display:block;
+      color:var(--c-text);
+      font-family:var(--font-display);
+      font-size:12px;
+      letter-spacing:2px;
+      margin-bottom:6px;
+    }
+    /* Compact pipeline tracker for the header context.
+       Original .pipeline is sized for the orb-area; in the header we
+       want a slimmer, single-line variant. */
+    .pipeline.th-pipeline{
+      flex:1 1 auto;
+      width:auto;
+      padding:4px 12px;
+      gap:0;
+      max-width:560px;
+      align-self:center;
+    }
+    .pipeline.th-pipeline .ph{
+      font-size:9px;
+      letter-spacing:1.2px;
+      gap:6px;
+    }
+    .pipeline.th-pipeline .ph .ph-dot{
+      width:7px; height:7px;
+    }
+
+    #chatContainer{
+      flex:1;
+      overflow-y:auto;
+      display:flex; flex-direction:column;
+      gap:10px;
+      padding-right:6px;
+      min-height:72px;
+      scrollbar-width:thin;
+      scrollbar-color: rgba(34,211,238,0.35) transparent;
+    }
+    #chatContainer::-webkit-scrollbar{ width:5px; }
+    #chatContainer::-webkit-scrollbar-thumb{
+      background:rgba(34,211,238,0.35);
+      border-radius:999px;
+    }
+
+    .message{
+      max-width:88%;
+      padding:10px 14px;
+      font-size:15px;
+      line-height:1.55;
+      font-family:var(--font-ui);
+      border-radius:4px;
+      position:relative;
+      animation: msgIn .35s ease;
+      word-wrap:break-word;
+      white-space:pre-wrap;
+    }
+    @keyframes msgIn{
+      from{ opacity:0; transform:translateY(8px); }
+      to  { opacity:1; transform:translateY(0); }
+    }
+
+    .message::before{
+      content:""; position:absolute; left:0; top:8px; bottom:8px;
+      width:2px;
+    }
+    .message .who{
+      font-family:var(--font-ui);
+      font-size:11px;
+      letter-spacing:0.8px;
+      font-weight:600;
+      opacity:0.85;
+      display:block;
+      margin-bottom:3px;
+    }
+    .message .when{
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:0.5px;
+      opacity:0.55;
+      margin-left:8px;
+      font-weight:400;
+    }
+
+    .message.user{
+      align-self:flex-end;
+      background:linear-gradient(90deg, rgba(99,102,241,0.10), rgba(59,130,246,0.18));
+      border:1px solid rgba(129,140,248,0.30);
+      color:#e0e7ff;
+      padding-left:14px;
+    }
+    .message.user::before{ background:var(--c-indigo); box-shadow:0 0 8px var(--c-indigo); right:0; left:auto; }
+    .message.user .who{ color:var(--c-indigo); text-align:right; }
+
+    .message.ai{
+      align-self:flex-start;
+      background:linear-gradient(90deg, rgba(34,211,238,0.10), rgba(14,165,233,0.04));
+      border:1px solid rgba(34,211,238,0.25);
+      color:#e0f7ff;
+      padding-left:16px;
+    }
+    .message.ai::before{ background:var(--c-cyan); box-shadow:0 0 8px var(--c-cyan); }
+    .message.ai .who{ color:var(--c-cyan); }
+
+    .message.ai.live{
+      box-shadow:0 0 18px rgba(34,211,238,0.18);
+    }
+    .message.ai.live::after{
+      content:"";
+      display:inline-block;
+      width:6px; height:14px;
+      background:var(--c-cyan);
+      margin-left:4px;
+      vertical-align:middle;
+      animation: caretBlink 1s steps(2) infinite;
+      box-shadow:0 0 8px var(--c-cyan);
+    }
+    @keyframes caretBlink{ 50%{ opacity:0; } }
+
+    /* Voice bars (real audio-driven) */
+    .visualizer{
+      display:flex; align-items:center;
+      justify-content:center;
+      gap:4px;
+      padding:10px 0;
+      height:60px;
+    }
+    .vbar{
+      width:4px;
+      height:6px;
+      border-radius:2px;
+      background:linear-gradient(to top, var(--c-cyan), var(--c-indigo));
+      transition: height 60ms ease-out, background 0.3s ease;
+      box-shadow:0 0 10px rgba(34,211,238,0.6);
+    }
+
+    /* Right control panel */
+    .control-panel{
+      background:var(--c-panel);
+      border:1px solid var(--c-panel-edge);
+      border-radius:6px;
+      backdrop-filter:blur(12px);
+      padding:16px;
+      display:flex; flex-direction:column;
+      gap:10px;
+    }
+    .control-panel .head{
+      font-family:var(--font-mono);
+      font-size:10px;
+      letter-spacing:2.5px;
+      color:var(--c-text-dim);
+      text-transform:uppercase;
+      padding-bottom:6px;
+      border-bottom:1px solid rgba(34,211,238,0.12);
+      display:flex; justify-content:space-between;
+    }
+
+    .btn{
+      display:flex; align-items:center; gap:10px;
+      padding:11px 14px;
+      border:1px solid var(--c-panel-edge);
+      border-radius:4px;
+      background:rgba(8,18,40,0.5);
+      color:var(--c-text);
+      font-family:var(--font-display);
+      font-size:11px;
+      letter-spacing:3px;
+      cursor:pointer;
+      transition: all .2s ease;
+      text-transform:uppercase;
+      position:relative;
+      overflow:hidden;
+    }
+    .btn:hover{
+      border-color:var(--c-cyan);
+      box-shadow:0 0 18px rgba(34,211,238,0.25);
+      transform:translateX(2px);
+    }
+    .btn:active{ transform:scale(.97); }
+
+    .btn .key{
+      margin-left:auto;
+      font-family:var(--font-mono);
+      font-size:9px;
+      color:var(--c-text-dim);
+      letter-spacing:1px;
+      border:1px solid rgba(120,145,184,0.3);
+      padding:2px 5px;
+      border-radius:3px;
+    }
+
+    .btn .icon{
+      width:14px; height:14px;
+      border-radius:50%;
+    }
+    .btn-record .icon{
+      background:var(--c-red);
+      box-shadow:0 0 10px var(--c-red);
+    }
+    .btn-record.active{
+      border-color:var(--c-red);
+      box-shadow:0 0 20px rgba(248,113,113,0.4);
+      animation:recBreath 1.2s ease-in-out infinite;
+    }
+    @keyframes recBreath{
+      0%,100%{ box-shadow:0 0 12px rgba(248,113,113,0.3); }
+      50%    { box-shadow:0 0 30px rgba(248,113,113,0.65); }
+    }
+    .btn-stop .icon{
+      border-radius:1px;
+      background:var(--c-amber);
+      box-shadow:0 0 10px var(--c-amber);
+    }
+    .btn-clear .icon{
+      background:transparent;
+      border:2px solid var(--c-text-dim);
+    }
+
+    /* ============================================================
+       FX & CHEAP FUTURE-Y BITS
+    ============================================================ */
+    .clock{
+      font-family:var(--font-mono);
+      font-size:13px;
+      letter-spacing:3px;
+      color:var(--c-cyan);
+      text-shadow:0 0 8px var(--c-glow);
+    }
+
+    .tick-list{
+      list-style:none;
+      font-family:var(--font-mono);
+      font-size:10.5px;
+      letter-spacing:1.2px;
+      color:var(--c-text-dim);
+      display:flex; flex-direction:column;
+      gap:4px;
+    }
+    .tick-list li{
+      display:flex; justify-content:space-between;
+      padding:2px 0;
+      border-bottom:1px dashed rgba(120,145,184,0.15);
+    }
+    .tick-list .ok{ color:var(--c-green); }
+    .tick-list .warn{ color:var(--c-amber); }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 1100px){
+      .stage{
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "header"
+          "center"
+          "footer";
+        grid-template-rows: 60px 1fr 220px;
+      }
+      .hud-panel.left, .hud-panel.right { display:none; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- backdrop layers -->
+  <div class="backdrop"></div>
+  <div class="grid-overlay"></div>
+  <canvas id="particlesCanvas"></canvas>
+  <div class="vignette"></div>
+  <div class="scanline"></div>
+
+  <!-- main stage -->
+  <div class="stage">
+
+    <!-- ============= HEADER ============= -->
+    <header class="header">
+      <div class="product-wrap" id="productWrap">
+        <button class="product-current" id="productToggle" type="button" aria-expanded="false" aria-haspopup="menu">
+          <div class="brand-mark"><span>A</span></div>
+          <span class="product-copy">
+            <strong>AURA</strong>
+            <small>User Interaction</small>
+          </span>
+          <span class="product-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="product-menu" id="productMenu" role="menu">
+          <small>Switch product</small>
+          <button type="button" data-product="meetly" role="menuitem">
+            <span class="product-icon meetly">MY</span>
+            <span><strong>Meetly</strong><em>Meetings &amp; intelligence</em></span>
+            <span class="trail">→</span>
+          </button>
+          <button type="button" data-product="conversation_ai" role="menuitem">
+            <span class="product-icon annotate">CA</span>
+            <span><strong>Conversation AI</strong><em>Call intelligence &amp; review</em></span>
+            <span class="trail">→</span>
+          </button>
+          <button type="button" class="selected" data-product="user_interaction" role="menuitem" aria-current="page">
+            <span class="product-icon aura">UI</span>
+            <span><strong>User Interaction</strong><em>Live voice chat with AURA</em></span>
+            <span class="trail">✓</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="header-stats">
+        <div class="stat">
+          <span>LATENCY</span>
+          <span class="v" id="hudLatency">— s</span>
+        </div>
+        <div class="stat">
+          <span>UPTIME</span>
+          <span class="v" id="hudUptime">00:00</span>
+        </div>
+        <div class="stat">
+          <span>SYSTEM TIME</span>
+          <span class="v clock" id="hudClock">--:--:--</span>
+        </div>
+        <div class="pulse-dot" title="online"></div>
+      </div>
+    </header>
+
+    <!-- ============= LEFT HUD ============= -->
+    <aside class="hud-panel left">
+      <div class="hud-section">
+        <div class="label">SYSTEM STATUS <span style="color:var(--c-green);">●</span></div>
+        <ul class="tick-list">
+          <li><span>ASR LINK</span><span class="ok" id="diagAsr">ONLINE</span></li>
+          <li><span>LLM CORE</span><span class="ok" id="diagLlm">ONLINE</span></li>
+          <li><span>TTS ENGINE</span><span class="ok" id="diagTts">ONLINE</span></li>
+          <li><span>SOCKET</span><span class="ok" id="diagSocket">CONNECTED</span></li>
+        </ul>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">CURRENT MODE</div>
+        <span class="mode-pill" id="modePill">
+          <span class="dot"></span><span id="modeText">STANDBY</span>
+        </span>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">NEURAL ACTIVITY</div>
+        <div class="mini-bars" id="neuralBars">
+          <div class="mb"></div><div class="mb"></div><div class="mb"></div>
+          <div class="mb"></div><div class="mb"></div><div class="mb"></div>
+          <div class="mb"></div><div class="mb"></div><div class="mb"></div>
+          <div class="mb"></div><div class="mb"></div><div class="mb"></div>
+        </div>
+        <div class="sub">REALTIME &middot; <span id="neuralPct">0%</span></div>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">AUDIO LEVEL</div>
+        <div class="value small"><span id="audioLevelTxt">−∞ dB</span></div>
+        <div class="sub">INPUT @ 48kHz</div>
+      </div>
+    </aside>
+
+    <!-- ============= CENTER: THE ORB ============= -->
+    <section class="center">
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+
+      <canvas id="orbCanvas"></canvas>
+
+      <div class="rings">
+        <!-- ring 1 -->
+        <svg class="ring-rot-slow" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="96"
+                  fill="none" stroke="rgba(34,211,238,0.35)" stroke-width="0.6"
+                  stroke-dasharray="2 6"/>
+          <circle cx="100" cy="100" r="96"
+                  fill="none" stroke="rgba(34,211,238,0.55)" stroke-width="0.4"
+                  stroke-dasharray="120 360"/>
+        </svg>
+        <!-- ring 2 -->
+        <svg class="ring-rot-mid" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="84"
+                  fill="none" stroke="rgba(129,140,248,0.45)" stroke-width="0.6"
+                  stroke-dasharray="1 4"/>
+          <g fill="none" stroke="rgba(34,211,238,0.55)" stroke-width="0.8">
+            <line x1="100" y1="4"   x2="100" y2="14"/>
+            <line x1="100" y1="186" x2="100" y2="196"/>
+            <line x1="4"   y1="100" x2="14"  y2="100"/>
+            <line x1="186" y1="100" x2="196" y2="100"/>
+          </g>
+        </svg>
+        <!-- ring 3 (tick marks) -->
+        <svg class="ring-rot-fast" viewBox="0 0 200 200">
+          <g fill="none" stroke="rgba(34,211,238,0.5)" stroke-width="0.5">
+            <circle cx="100" cy="100" r="72" stroke-dasharray="1 3"/>
+          </g>
+          <g fill="rgba(34,211,238,0.85)">
+            <circle cx="100" cy="28" r="1.6"/>
+            <circle cx="172" cy="100" r="1.6"/>
+            <circle cx="100" cy="172" r="1.6"/>
+            <circle cx="28"  cy="100" r="1.6"/>
+          </g>
+        </svg>
+      </div>
+
+      <!-- thinking-orbit: two satellites circling the orb while LLM is busy -->
+      <div class="thinking-orbit" id="thinkingOrbit">
+        <span class="satellite"></span>
+        <span class="satellite b"></span>
+      </div>
+    </section>
+
+    <!-- ============= RIGHT HUD ============= -->
+    <aside class="hud-panel right">
+      <div class="hud-section">
+        <div class="label">SIGNAL</div>
+        <div class="radar">
+          <div class="cross"></div>
+          <div class="sweep"></div>
+        </div>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">LATENCY &middot; LIVE</div>
+        <div class="lat-grid">
+          <div class="lat-cell">
+            <div class="k">LIVE</div>
+            <div class="v" id="latLive">— s</div>
+          </div>
+          <div class="lat-cell">
+            <div class="k">AVG</div>
+            <div class="v" id="latAvg">— s</div>
+          </div>
+          <div class="lat-cell">
+            <div class="k">BEST</div>
+            <div class="v green" id="latMin">— s</div>
+          </div>
+          <div class="lat-cell">
+            <div class="k">WORST</div>
+            <div class="v amber" id="latMax">— s</div>
+          </div>
+        </div>
+        <svg class="lat-spark" viewBox="0 0 100 36" preserveAspectRatio="none">
+          <line class="gridline" x1="0" y1="9"  x2="100" y2="9"/>
+          <line class="gridline" x1="0" y1="18" x2="100" y2="18"/>
+          <line class="gridline" x1="0" y1="27" x2="100" y2="27"/>
+          <polyline id="latSparkFill"
+            fill="rgba(34,211,238,0.10)" stroke="none"
+            points="0,36 100,36"/>
+          <polyline id="latSpark"
+            fill="none" stroke="var(--c-cyan)" stroke-width="1.1"
+            points="0,18 100,18"
+            style="filter: drop-shadow(0 0 4px var(--c-cyan));"/>
+        </svg>
+        <div class="sub" id="latSubtitle">end-to-end &middot; user stop -> first audio</div>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">OUTPUT METER</div>
+        <div class="value small" id="outputTxt">0%</div>
+        <div class="sub">VOICE SYNTHESIS @ 24kHz</div>
+      </div>
+
+      <div class="hud-section">
+        <div class="label">SESSION</div>
+        <ul class="tick-list">
+          <li><span>QUERIES</span><span class="ok" id="sessQueries">0</span></li>
+          <li><span>TOKENS</span><span class="ok" id="sessTokens">0</span></li>
+          <li><span>AVG TTFB</span><span class="ok" id="sessTtfb">—</span></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- ============= FOOTER: transcript + controls ============= -->
+    <footer class="footer">
+
+      <div class="transcript-wrap">
+        <div class="transcript-head">
+          <div class="th-left">
+            <span class="th-title">Conversation</span>
+            <span id="transcriptCount" class="th-count">No messages yet</span>
+          </div>
+
+          <!-- Friendly progress: Listening → Understanding → Thinking → Speaking -->
+          <div class="pipeline th-pipeline" id="pipeline">
+            <div class="ph" data-phase="capture">
+              <span class="ph-dot"></span><span>Listening</span>
+            </div>
+            <div class="ph-line"></div>
+            <div class="ph" data-phase="asr">
+              <span class="ph-dot"></span><span>Understanding</span>
+            </div>
+            <div class="ph-line"></div>
+            <div class="ph" data-phase="llm">
+              <span class="ph-dot"></span><span>Thinking</span>
+            </div>
+            <div class="ph-line"></div>
+            <div class="ph" data-phase="tts">
+              <span class="ph-dot"></span><span>Speaking</span>
+            </div>
+          </div>
+
+          <div class="th-right">
+            <div class="th-status-block">
+              <span id="statusText" class="th-status">Ready</span>
+              <span class="live-tag">Press Speak to start</span>
+            </div>
+            <span id="emotionBadge" class="statusTextClass"
+                  style="margin-left:8px; padding:2px 8px; border-radius:8px;
+                         border:1px solid rgba(34,211,238,0.4);
+                         font-size:11px; display:none;">
+              neutral
+            </span>
+          </div>
+        </div>
+        <div class="visualizer" id="voiceBars">
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+        </div>
+        <div id="chatContainer">
+          <div class="transcript-empty" id="transcriptEmpty">
+            <strong>Start a voice chat</strong>
+            Tap <em>Speak</em>, talk naturally, then tap <em>Stop</em>. While AURA is answering, just start talking to interrupt.
+          </div>
+        </div>
+      </div>
+
+      <div class="control-panel">
+        <div class="head"><span>Controls</span><span>v1.0</span></div>
+        <!--
+          SPEAK and STOP share the same slot: only ONE of them is
+          visible at any moment.  Default: SPEAK visible, STOP hidden.
+          SPEAK-click flips them; STOP-click / TTS-end / CLEAR-click
+          flips them back.  See app.js -> showSpeakButton /
+          showStopButton.
+        -->
+        <button id="recordBtn" class="btn btn-record">
+          <span class="icon"></span>Speak<span class="key">SPACE</span>
+        </button>
+        <button id="pauseBtn" class="btn btn-stop" style="display:none;">
+          <span class="icon"></span>Stop<span class="key">SPACE / ESC</span>
+        </button>
+        <button id="clearBtn" class="btn btn-clear">
+          <span class="icon"></span>Clear chat<span class="key">C</span>
+        </button>
+        <label style="margin-top:10px; font-size:12px; opacity:0.85;
+                      letter-spacing:0.4px; display:flex; align-items:center;
+                      gap:6px;">
+          <span>Language</span>
+          <select id="langSelect"
+                  style="flex:1; background:rgba(11,19,32,0.85);
+                         color:#22d3ee; border:1px solid rgba(34,211,238,0.4);
+                         border-radius:6px; padding:4px 6px; font-size:12px;">
+            <option value="ben_Beng">Bengali</option>
+            <option value="hin_Deva">Hindi</option>
+            <option value="eng_Latn">English</option>
+            <option value="tam_Taml">Tamil</option>
+            <option value="tel_Telu">Telugu</option>
+            <option value="mar_Deva">Marathi</option>
+            <option value="guj_Gujr">Gujarati</option>
+            <option value="kan_Knda">Kannada</option>
+            <option value="mal_Mlym">Malayalam</option>
+            <option value="pan_Guru">Punjabi</option>
+            <option value="urd_Arab">Urdu</option>
+          </select>
+        </label>
+      </div>
+
+    </footer>
+
+  </div>
+
+  <!-- Three.js for the 3D orb -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <!-- Socket.IO client -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <!-- Main app -->
+  <script src="app.js"></script>
+
+</body>
+</html>
