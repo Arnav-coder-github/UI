@@ -65,6 +65,8 @@ const firstAudioStampForId  = {};       // id -> performance.now() at first audi
 const recordBtn   = document.getElementById("recordBtn");
 const pauseBtn    = document.getElementById("pauseBtn");
 const clearBtn    = document.getElementById("clearBtn");
+const voiceAutoSwitch = document.getElementById("voiceAutoSwitch");
+const voiceAutoHint   = document.getElementById("voiceAutoHint");
 
 // ============================================================
 // SPEAK <-> STOP toggle
@@ -490,7 +492,38 @@ const STATES = {
   speaking:  { color: 0xf472b6, label: "Speaking",    text: "Speak anytime to interrupt" },
 };
 let aiState = "idle";
-let auraFace = null;
+
+// Modular auto-listen / VAD (default OFF). Exposes voice state for UI/orb.
+const voiceAuto = window.VoiceAuto.create({
+  // Tunable silence gap after user stops speaking (keep snappy)
+  endSilenceMs: 700,
+  speechThreshold: 0.025,
+  speechHoldMs: 120,
+  ttsResumeGraceMs: 550,
+  onEvent(ev) {
+    // Mirror high-level voice state for any external consumer (orb, HUD)
+    try {
+      window.AURA_VOICE = voiceAuto.getState();
+      window.dispatchEvent(
+        new CustomEvent("aura:voice", { detail: window.AURA_VOICE })
+      );
+    } catch (_) {}
+  },
+});
+window.AURA_VOICE = voiceAuto.getState();
+window.getAuraVoiceState = () => voiceAuto.getState();
+/** Tune VAD: { endSilenceMs, speechThreshold, speechHoldMs, ttsResumeGraceMs } */
+window.setAuraVoiceConfig = (partial) => voiceAuto.setConfig(partial);
+
+function liveTagForState(next) {
+  if (voiceAuto.isEnabled()) {
+    if (next === "idle") return "Auto-listen on — speak when ready";
+    if (next === "listening") return "Hearing you… pause when done";
+    if (next === "thinking") return "Working on your reply…";
+    if (next === "speaking") return "Playing reply — mic paused";
+  }
+  return STATES[next].text;
+}
 
 function setState(next) {
   if (aiState === next) return;
@@ -501,47 +534,33 @@ function setState(next) {
   modeText.textContent = next === "idle" ? "READY" : next.toUpperCase();
   modePill.classList.remove("listening", "thinking", "speaking");
   if (next !== "idle") modePill.classList.add(next);
+  orbTargetColor.setHex(conf.color);
 
   const liveTag = document.querySelector(".live-tag");
-  if (liveTag) liveTag.textContent = conf.text;
+  if (liveTag) liveTag.textContent = liveTagForState(next);
 
   // thinking-orbit only while LLM/ASR are working
   if (next === "thinking") thinkingOrbit.classList.add("on");
   else                     thinkingOrbit.classList.remove("on");
 
-  // Drive modular voxel face states
-  if (auraFace) {
-    if (next === "listening") {
-      auraFace.onListeningStart();
-    } else if (prev === "listening") {
-      auraFace.onListeningEnd();
-    }
-    if (next === "thinking") {
-      auraFace.onThinkingStart();
-    } else if (prev === "thinking" && next !== "speaking") {
-      auraFace.onThinkingEnd();
-    }
-    if (next === "speaking") {
-      auraFace.onTTSStart(null, null);
-    } else if (prev === "speaking") {
-      auraFace.onTTSEnd();
-    }
-    if (next === "idle" && prev !== "speaking") {
-      // ensure calm idle if we didn't come from TTS end
-      if (prev === "listening") auraFace.onListeningEnd();
-      if (prev === "thinking") auraFace.onThinkingEnd();
-    }
-  }
+  // Keep VAD module in sync (pauses hard during TTS)
+  voiceAuto.notifyPipeline(next);
+  window.AURA_VOICE = voiceAuto.getState();
 
-  // Continuous barge-in listen while AI is thinking/speaking.
-  if (next === "speaking" || next === "thinking") {
-    if (prev !== "speaking" && prev !== "thinking") {
-      startBargeInMonitor({
-        graceMs: next === "speaking" ? BARGE_IN_GRACE_MS : 400,
-      });
+  // Mic policy:
+  //  - Auto-listen ON  → keep mic for VAD; barge-in only while thinking
+  //    (SPEAKING suppresses mic→ASR entirely — echo prevention)
+  //  - Auto-listen OFF → no continuous mic; Speak button only
+  if (voiceAuto.isEnabled()) {
+    if (next === "thinking") {
+      startBargeInMonitor({ graceMs: 400 });
     } else if (next === "speaking") {
-      // Fresh grace window when TTS audio actually begins.
-      bargeInGraceUntil = performance.now() + BARGE_IN_GRACE_MS;
+      stopBargeInMonitor({ keepMic: true });
+    } else if (next === "idle" && !recording) {
+      stopBargeInMonitor({ keepMic: true });
+      syncAutoMic();
+    } else if (next === "listening") {
+      stopBargeInMonitor({ keepMic: true });
     }
   } else if (next === "idle" && !recording) {
     stopBargeInMonitor({ keepMic: false });
@@ -549,28 +568,187 @@ function setState(next) {
 }
 
 // ============================================================
-// 3D VOXEL AI FACE (AuraFace module)
+// 3D ORB (Three.js)
 // ============================================================
 const orbCanvas = document.getElementById("orbCanvas");
 const center    = orbCanvas.parentElement;
 
-try {
-  auraFace = window.AuraFace.create(orbCanvas, { resX: 56, resY: 72 });
-  // Lip-sync fallback: analyse the same TTS Web Audio graph
-  auraFace.setAnalyser(ttsAnalyser);
-  console.log(`[AuraFace] voxels=${auraFace.voxelCount}`);
-} catch (err) {
-  console.error("[AuraFace] failed to init", err);
-}
+const renderer = new THREE.WebGLRenderer({
+  canvas: orbCanvas,
+  alpha: true,
+  antialias: true,
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(
+  45, center.clientWidth / center.clientHeight, 0.1, 100
+);
+camera.position.set(0, 0, 4.2);
 
 function resizeRenderer() {
-  if (auraFace) auraFace.resize(center.clientWidth, center.clientHeight);
+  const w = center.clientWidth;
+  const h = center.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
 }
 window.addEventListener("resize", resizeRenderer);
 resizeRenderer();
 
-// Keep a no-op color target so any leftover references are safe.
-const orbTargetColor = { setHex() {} };
+const orbBaseColor   = new THREE.Color(0x22d3ee);
+const orbTargetColor = new THREE.Color(0x22d3ee);
+
+const orbUniforms = {
+  uTime:  { value: 0 },
+  uAmp:   { value: 0 },
+  uColor: { value: orbBaseColor.clone() },
+};
+
+const NOISE_GLSL = /* glsl */ `
+  vec3 mod289(vec3 x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+  vec4 mod289(vec4 x){return x - floor(x * (1.0 / 289.0)) * 289.0;}
+  vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+  vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+  float snoise(vec3 v){
+    const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+    const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+    vec3 i  = floor(v + dot(v, C.yyy));
+    vec3 x0 = v - i + dot(i, C.xxx);
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min(g.xyz, l.zxy);
+    vec3 i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+    i = mod289(i);
+    vec4 p = permute(permute(permute(
+              i.z + vec4(0.0, i1.z, i2.z, 1.0))
+              + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+              + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+    float n_ = 0.142857142857;
+    vec3 ns = n_ * D.wyz - D.xzx;
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_);
+    vec4 x = x_ *ns.x + ns.yyyy;
+    vec4 y = y_ *ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+    vec4 b0 = vec4(x.xy, y.xy);
+    vec4 b1 = vec4(x.zw, y.zw);
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+    vec3 p0 = vec3(a0.xy, h.x);
+    vec3 p1 = vec3(a0.zw, h.y);
+    vec3 p2 = vec3(a1.xy, h.z);
+    vec3 p3 = vec3(a1.zw, h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+  }
+`;
+
+const ORB_VERTEX_SHADER = /* glsl */ `
+  uniform float uTime;
+  uniform float uAmp;
+  varying vec3  vNormal;
+  varying float vDisp;
+  ${NOISE_GLSL}
+  void main(){
+    vNormal = normalize(normalMatrix * normal);
+    float n  = snoise(position * 1.4 + uTime * 0.35);
+    float n2 = snoise(position * 3.0 - uTime * 0.20) * 0.5;
+    float disp = (n + n2) * (0.15 + uAmp * 0.55);
+    vDisp = disp;
+    vec3 p = position + normal * disp;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+const ORB_WIRE_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  varying vec3 vNormal;
+  varying float vDisp;
+  void main(){
+    float fres = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 1.6);
+    vec3 col = mix(uColor * 0.55, uColor * 1.7, fres + vDisp * 0.6);
+    gl_FragColor = vec4(col, 0.85);
+  }
+`;
+
+const ORB_GLOW_FRAGMENT = /* glsl */ `
+  uniform vec3 uColor;
+  varying vec3 vNormal;
+  varying float vDisp;
+  void main(){
+    float rim = pow(1.0 - max(dot(vNormal, vec3(0.0, 0.0, 1.0)), 0.0), 2.5);
+    float intensity = rim + max(vDisp, 0.0) * 0.4;
+    vec3 col = uColor * intensity;
+    gl_FragColor = vec4(col, intensity * 0.75);
+  }
+`;
+
+const orbGeom = new THREE.IcosahedronGeometry(1.0, 6);
+
+const orbWire = new THREE.Mesh(
+  orbGeom,
+  new THREE.ShaderMaterial({
+    uniforms: orbUniforms,
+    vertexShader:   ORB_VERTEX_SHADER,
+    fragmentShader: ORB_WIRE_FRAGMENT,
+    wireframe: true,
+    transparent: true,
+    depthWrite: false,
+  })
+);
+scene.add(orbWire);
+
+const orbGlow = new THREE.Mesh(
+  orbGeom,
+  new THREE.ShaderMaterial({
+    uniforms: orbUniforms,
+    vertexShader:   ORB_VERTEX_SHADER,
+    fragmentShader: ORB_GLOW_FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide,
+  })
+);
+orbGlow.scale.setScalar(1.25);
+scene.add(orbGlow);
+
+// orbiting "data dots"
+const POINT_COUNT = 1400;
+const pointsGeom = new THREE.BufferGeometry();
+const pointsPositions = new Float32Array(POINT_COUNT * 3);
+for (let i = 0; i < POINT_COUNT; i++) {
+  const r     = 1.6 + Math.random() * 1.6;
+  const theta = Math.random() * Math.PI * 2;
+  const phi   = Math.acos(2 * Math.random() - 1);
+  pointsPositions[i * 3 + 0] = r * Math.sin(phi) * Math.cos(theta);
+  pointsPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+  pointsPositions[i * 3 + 2] = r * Math.cos(phi);
+}
+pointsGeom.setAttribute("position", new THREE.BufferAttribute(pointsPositions, 3));
+
+const pointsMat = new THREE.PointsMaterial({
+  color: 0x22d3ee,
+  size: 0.020,
+  sizeAttenuation: true,
+  transparent: true,
+  opacity: 0.85,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const dataPoints = new THREE.Points(pointsGeom, pointsMat);
+scene.add(dataPoints);
 
 // ============================================================
 // 2D PARTICLE BACKDROP
@@ -662,13 +840,27 @@ function tick() {
 
   const rawAmp = readAmplitude();
   smoothAmp = smoothAmp * 0.82 + rawAmp * 0.18;
+  orbUniforms.uAmp.value = smoothAmp;
+  orbUniforms.uTime.value += dt * 0.7;
+  orbUniforms.uColor.value.lerp(orbTargetColor, 0.06);
+  pointsMat.color.copy(orbUniforms.uColor.value);
 
-  if (auraFace) {
-    if (aiState === "speaking") {
-      auraFace.onTTSProgress(performance.now());
-    }
-    auraFace.update(dt, now);
-  }
+  const s = 1.0 + smoothAmp * 0.18;
+  orbWire.scale.setScalar(s);
+  orbGlow.scale.setScalar(s * 1.25);
+
+  const rotSpeed =
+    aiState === "thinking"  ? 1.1  :
+    aiState === "speaking"  ? 0.45 :
+    aiState === "listening" ? 0.25 : 0.12;
+  orbWire.rotation.y += dt * rotSpeed;
+  orbWire.rotation.x += dt * rotSpeed * 0.35;
+  orbGlow.rotation.copy(orbWire.rotation);
+
+  dataPoints.rotation.y -= dt * 0.08;
+  dataPoints.rotation.x -= dt * 0.04;
+
+  renderer.render(scene, camera);
 
   const spec = readSpectrum();
   const N = voiceBars.length;
@@ -958,18 +1150,16 @@ socket.on("stream_end", () => {
     setState("idle");
     resetPhases();
     showSpeakButton();
+    if (voiceAuto.isEnabled()) syncAutoMic();
   }, remaining + 50);
 });
 
 // ============================================================
-// MIC RECORDING + BARGE-IN
+// MIC RECORDING + BARGE-IN + AUTO-LISTEN (VAD)
 // ------------------------------------------------------------
-// Speak → manual capture until Stop (unchanged).
-// While AI is thinking/speaking, the mic stays open in *monitor*
-// mode. Sustained speech (RMS, same idea as R&D/audio_pause.html)
-// immediately kills TTS + backend turn and switches into capture.
-// Barge-in captures auto-end after trailing silence; Speak captures
-// still require an explicit Stop.
+// Speak → manual capture until Stop (when Auto-listen OFF).
+// Auto-listen ON → local VAD; silence ignored; speech → ASR.
+// During SPEAKING (TTS), VAD is paused so TTS echo never hits ASR.
 // ============================================================
 let mediaStream;
 let processor;
@@ -978,8 +1168,7 @@ let recording = false;
 
 const SILENCE_THRESHOLD = 0.012;
 
-// Barge-in: matches audio_pause.html threshold, plus a short hold and
-// post-TTS grace so speaker echo does not false-trigger.
+// Barge-in (thinking only when Auto-listen is ON)
 const BARGE_IN_SPEECH_THRESHOLD = 0.04;
 const BARGE_IN_HOLD_MS          = 140;
 const BARGE_IN_GRACE_MS         = 700;
@@ -989,6 +1178,7 @@ let bargeInActive          = false;
 let bargeInGraceUntil      = 0;
 let bargeInSpeechStartedAt = 0;
 let captureViaBargeIn      = false;
+let captureViaAuto         = false;
 let lastSpeechAt           = 0;
 let micOpenPromise         = null;
 let stopRecordingQueued    = false;
@@ -1020,6 +1210,52 @@ function micFrameEnergy(input) {
   return Math.sqrt(energy / input.length);
 }
 
+function autoEndSilenceMs() {
+  try {
+    return voiceAuto.getConfig().endSilenceMs || BARGE_IN_END_SILENCE_MS;
+  } catch (_) {
+    return BARGE_IN_END_SILENCE_MS;
+  }
+}
+
+async function syncAutoMic() {
+  if (!voiceAuto.isEnabled()) {
+    if (!recording && !bargeInActive) closeMic();
+    return;
+  }
+  try {
+    await ensureMicOpen();
+  } catch (err) {
+    console.warn("[ui] auto-listen mic unavailable", err);
+    updateVoiceAutoSwitchUI(false);
+    voiceAuto.setEnabled(false);
+  }
+}
+
+function beginAutoUtterance(flushPreroll) {
+  if (recording) return;
+  if (aiState === "speaking") return; // echo guard
+
+  micChunks = [];
+  if (flushPreroll && flushPreroll.length) {
+    for (const f of flushPreroll) micChunks.push(f);
+  }
+  everSpoke = true;
+  lastSpeechAt = performance.now();
+  recordingStartedAt = Date.now();
+  pendingQueryStartAt = 0;
+  captureViaAuto = true;
+  captureViaBargeIn = false;
+  capturedSampleRate = audioContextInput ? audioContextInput.sampleRate : 48000;
+  recording = true;
+  voiceAuto.markCapturing();
+
+  showStopButton();
+  recordBtn.classList.add("active");
+  setState("listening");
+  setPhase("capture");
+}
+
 function onMicProcess(e) {
   const input = e.inputBuffer.getChannelData(0);
   const energy = micFrameEnergy(input);
@@ -1032,17 +1268,17 @@ function onMicProcess(e) {
       lastSpeechAt = performance.now();
     }
 
-    // ChatGPT-style: after a barge-in utterance, end on silence.
-    // Defer so we don't tear down ScriptProcessor inside its own callback.
+    const endMs =
+      captureViaAuto ? autoEndSilenceMs() : BARGE_IN_END_SILENCE_MS;
     if (
-      captureViaBargeIn &&
+      (captureViaAuto || captureViaBargeIn) &&
       !stopRecordingQueued &&
       everSpoke &&
       lastSpeechAt > 0 &&
-      performance.now() - lastSpeechAt >= BARGE_IN_END_SILENCE_MS
+      performance.now() - lastSpeechAt >= endMs
     ) {
       stopRecordingQueued = true;
-      queuePromise.resolve().then(() => {
+      Promise.resolve().then(() => {
         stopRecordingQueued = false;
         stopRecording();
       });
@@ -1050,8 +1286,19 @@ function onMicProcess(e) {
     return;
   }
 
+  // Auto-listen VAD — silence never sent to ASR
+  if (voiceAuto.isEnabled()) {
+    const result = voiceAuto.processFrame(energy, input);
+    if (result.action === "start_utterance") {
+      beginAutoUtterance(result.flushPreroll);
+      if (result.samples) micChunks.push(new Float32Array(result.samples));
+      return;
+    }
+  }
+
+  // Barge-in while thinking (auto-listen ON only)
   if (!bargeInActive) return;
-  if (aiState !== "speaking" && aiState !== "thinking") return;
+  if (aiState !== "thinking") return;
   if (performance.now() < bargeInGraceUntil) {
     bargeInSpeechStartedAt = 0;
     micChunks = [];
@@ -1063,7 +1310,6 @@ function onMicProcess(e) {
       bargeInSpeechStartedAt = performance.now();
       micChunks = [];
     }
-    // Tentatively capture so the trigger syllables are not lost.
     micChunks.push(new Float32Array(input));
     if (performance.now() - bargeInSpeechStartedAt >= BARGE_IN_HOLD_MS) {
       triggerBargeIn();
@@ -1117,6 +1363,7 @@ async function ensureMicOpen() {
 }
 
 async function startBargeInMonitor({ graceMs } = {}) {
+  if (!voiceAuto.isEnabled()) return;
   bargeInActive = true;
   bargeInGraceUntil = performance.now() + (graceMs ?? BARGE_IN_GRACE_MS);
   bargeInSpeechStartedAt = 0;
@@ -1133,30 +1380,28 @@ async function startBargeInMonitor({ graceMs } = {}) {
 function stopBargeInMonitor({ keepMic = false } = {}) {
   bargeInActive = false;
   bargeInSpeechStartedAt = 0;
-  if (!keepMic && !recording) closeMic();
+  if (!keepMic && !recording && !voiceAuto.isEnabled()) closeMic();
 }
 
-// User spoke over TTS/thinking: kill old turn, start capturing now.
 function triggerBargeIn() {
   if (recording) return;
-  if (aiState !== "speaking" && aiState !== "thinking") return;
+  if (aiState !== "thinking") return;
 
   console.log("[ui] BARGE-IN");
   bargeInActive = false;
   bargeInSpeechStartedAt = 0;
 
-  // Stop local TTS + tell backend to drop the in-flight generation.
   killLocalAudio();
   settleLive();
   try { socket.emit("interrupt", { reason: "barge_in" }); } catch (_) {}
 
-  // micChunks already holds the tentative pre-trigger audio from monitor.
   if (!micChunks.length) micChunks = [];
   everSpoke = true;
   lastSpeechAt = performance.now();
   recordingStartedAt = Date.now();
   pendingQueryStartAt = 0;
   captureViaBargeIn = true;
+  captureViaAuto = false;
   capturedSampleRate = audioContextInput ? audioContextInput.sampleRate : 48000;
   recording = true;
 
@@ -1169,11 +1414,88 @@ function triggerBargeIn() {
   if (liveTag) liveTag.textContent = "Interrupted — keep speaking, then pause";
 }
 
+function updateVoiceAutoSwitchUI(on) {
+  if (voiceAutoSwitch) {
+    voiceAutoSwitch.setAttribute("aria-checked", on ? "true" : "false");
+  }
+  if (voiceAutoHint) {
+    voiceAutoHint.textContent = on ? "On" : "Off";
+    voiceAutoHint.classList.toggle("on", !!on);
+  }
+}
+
+async function setAutoListenEnabled(on) {
+  const enabled = voiceAuto.setEnabled(!!on);
+  updateVoiceAutoSwitchUI(enabled);
+  localStorage.setItem("aura.autoListen", enabled ? "1" : "0");
+
+  if (enabled) {
+    if (audioContext.state === "suspended") {
+      try { await audioContext.resume(); } catch (_) {}
+    }
+    await syncAutoMic();
+    if (aiState === "idle") {
+      const liveTag = document.querySelector(".live-tag");
+      if (liveTag) liveTag.textContent = liveTagForState("idle");
+    }
+  } else {
+    if (recording && captureViaAuto) {
+      recording = false;
+      captureViaAuto = false;
+      micChunks = [];
+      showSpeakButton();
+      setState("idle");
+      resetPhases();
+    }
+    if (!recording) closeMic();
+    const liveTag = document.querySelector(".live-tag");
+    if (liveTag && aiState === "idle") liveTag.textContent = STATES.idle.text;
+  }
+  window.AURA_VOICE = voiceAuto.getState();
+}
+
+if (voiceAutoSwitch) {
+  voiceAutoSwitch.addEventListener("click", () => {
+    setAutoListenEnabled(!voiceAuto.isEnabled());
+  });
+  updateVoiceAutoSwitchUI(false);
+}
+
 recordBtn.onclick = async () => {
   if (recording) return;
   if (aiState === "thinking" || aiState === "speaking") {
-    // Speak while AI is live → same path as voice barge-in.
-    triggerBargeIn();
+    // Manual Speak during AI turn: kill TTS/gen, then capture.
+    killLocalAudio();
+    settleLive();
+    try { socket.emit("interrupt", { reason: "speak_button" }); } catch (_) {}
+    stopBargeInMonitor({ keepMic: voiceAuto.isEnabled() });
+
+    try {
+      if (audioContext.state === "suspended") {
+        try { await audioContext.resume(); } catch (_) {}
+      }
+      showStopButton();
+      recordBtn.classList.add("active");
+      setState("listening");
+      setPhase("capture");
+      micChunks = [];
+      everSpoke = false;
+      lastSpeechAt = 0;
+      captureViaBargeIn = false;
+      captureViaAuto = false;
+      recordingStartedAt = Date.now();
+      pendingQueryStartAt = 0;
+      await ensureMicOpen();
+      capturedSampleRate = audioContextInput.sampleRate;
+      recording = true;
+    } catch (err) {
+      console.error(err);
+      recording = false;
+      if (!voiceAuto.isEnabled()) closeMic();
+      setState("idle");
+      statusText.textContent = "MIC ERROR";
+      showSpeakButton();
+    }
     return;
   }
 
@@ -1191,6 +1513,7 @@ recordBtn.onclick = async () => {
     everSpoke = false;
     lastSpeechAt = 0;
     captureViaBargeIn = false;
+    captureViaAuto = false;
     recordingStartedAt = Date.now();
     pendingQueryStartAt = 0;
 
@@ -1201,7 +1524,8 @@ recordBtn.onclick = async () => {
     console.error(err);
     recording = false;
     captureViaBargeIn = false;
-    closeMic();
+    captureViaAuto = false;
+    if (!voiceAuto.isEnabled()) closeMic();
     setState("idle");
     statusText.textContent = "MIC ERROR";
     recordBtn.classList.remove("active");
@@ -1209,25 +1533,19 @@ recordBtn.onclick = async () => {
   }
 };
 
-// ------------------------------------------------------------
-// STOP button
-// ------------------------------------------------------------
-//   1) Still recording → finalise buffer and send to ASR.
-//   2) Thinking/speaking with no capture → cancel turn (hard interrupt).
-// Voice barge-in is handled by triggerBargeIn() above; Stop during a
-// barge-in capture still means "I'm done, send it."
-// ------------------------------------------------------------
 function hardInterrupt(reason) {
   console.log("[ui] HARD INTERRUPT", reason || "");
   recording = false;
   captureViaBargeIn = false;
+  captureViaAuto = false;
   killLocalAudio();
   settleLive();
-  stopBargeInMonitor({ keepMic: false });
+  stopBargeInMonitor({ keepMic: voiceAuto.isEnabled() });
   setState("idle");
   resetPhases();
   showSpeakButton();
   try { socket.emit("interrupt", { reason: reason || "user_stop" }); } catch (_) {}
+  if (voiceAuto.isEnabled()) syncAutoMic();
 }
 
 pauseBtn.onclick = () => {
@@ -1242,7 +1560,9 @@ async function stopRecording() {
   if (!recording) return;
   recording = false;
   const viaBarge = captureViaBargeIn;
+  const viaAuto = captureViaAuto;
   captureViaBargeIn = false;
+  captureViaAuto = false;
 
   recordBtn.classList.remove("active");
 
@@ -1251,13 +1571,13 @@ async function stopRecording() {
   const spoke = everSpoke;
   micChunks = [];
 
-  // Release the capture mic; thinking/speaking will reopen for monitor.
-  closeMic();
+  if (!voiceAuto.isEnabled()) closeMic();
 
   if (!spoke || chunks.length === 0) {
     setState("idle");
     resetPhases();
     showSpeakButton();
+    if (voiceAuto.isEnabled()) syncAutoMic();
     return;
   }
 
@@ -1266,7 +1586,7 @@ async function stopRecording() {
 
   let flat = flatten(chunks);
   flat = trimLeadingSilence(flat,  sr0, 0.012, 100);
-  flat = trimTrailingSilence(flat, sr0, 0.012, viaBarge ? 200 : 150);
+  flat = trimTrailingSilence(flat, sr0, 0.012, viaBarge || viaAuto ? 200 : 150);
 
   const resampled  = await resampleTo16k(flat, sr0);
   const normalized = normalize(resampled);
@@ -1344,6 +1664,7 @@ function sendToASR(int16Audio) {
     resetPhases();
     statusText.textContent = "NETWORK ERROR";
     showSpeakButton();
+    if (voiceAuto.isEnabled()) syncAutoMic();
   });
 }
 
@@ -1397,7 +1718,8 @@ clearBtn.onclick = () => {
     if (recording) {
       recording = false;
       captureViaBargeIn = false;
-      closeMic();
+      captureViaAuto = false;
+      if (!voiceAuto.isEnabled()) closeMic();
     }
     hardInterrupt("clear_button");
   }
@@ -1405,7 +1727,7 @@ clearBtn.onclick = () => {
   chatContainer.innerHTML = `
     <div class="transcript-empty" id="transcriptEmpty">
       <strong>Start a voice chat</strong>
-      Tap <em>Speak</em>, talk naturally, then tap <em>Stop</em>. While AURA is answering, just start talking to interrupt.
+      Tap <em>Speak</em>, or turn on <em>Auto-listen</em> and talk naturally.
     </div>`;
   killLocalAudio();
   setState("idle");
@@ -1415,6 +1737,7 @@ clearBtn.onclick = () => {
   sessQueries.textContent = "0";
   sessTokens.textContent  = "0";
   showSpeakButton();
+  if (voiceAuto.isEnabled()) syncAutoMic();
   // keep latency history for trend context; user can reload to wipe
 };
 
@@ -1443,7 +1766,8 @@ window.addEventListener("keydown", (e) => {
     if (recording) {
       recording = false;
       captureViaBargeIn = false;
-      closeMic();
+      captureViaAuto = false;
+      if (!voiceAuto.isEnabled()) closeMic();
     }
     hardInterrupt("escape_key");
   } else if (e.key.toLowerCase() === "c") {

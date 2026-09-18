@@ -483,7 +483,7 @@
     }
 
     /* ============================================================
-       CENTER -- VOXEL AI FACE
+       CENTER -- THE ORB
     ============================================================ */
     .center{
       grid-area:center;
@@ -978,6 +978,70 @@
       display:flex; justify-content:space-between;
     }
 
+    /* Subtle Auto-listen setting (not a CTA) */
+    .voice-auto-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:8px 2px 2px;
+      margin-top:2px;
+    }
+    .voice-auto-meta{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+    .voice-auto-label{
+      font-family:var(--font-ui);
+      font-size:12px;
+      color:var(--c-text-dim);
+      letter-spacing:0.2px;
+    }
+    .voice-auto-hint{
+      font-family:var(--font-mono);
+      font-size:9px;
+      letter-spacing:1px;
+      color:rgba(148,163,184,0.75);
+      text-transform:uppercase;
+    }
+    .voice-auto-hint.on{ color:rgba(52,211,153,0.9); }
+    .voice-switch{
+      position:relative;
+      width:36px;
+      height:20px;
+      flex-shrink:0;
+      border:1px solid rgba(34,211,238,0.28);
+      border-radius:999px;
+      background:rgba(15,23,42,0.9);
+      cursor:pointer;
+      padding:0;
+      transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .voice-switch:focus-visible{
+      outline:1px solid rgba(34,211,238,0.55);
+      outline-offset:2px;
+    }
+    .voice-switch .knob{
+      position:absolute;
+      top:2px; left:2px;
+      width:14px; height:14px;
+      border-radius:50%;
+      background:rgba(148,163,184,0.85);
+      transition: transform 0.2s ease, background 0.2s ease;
+      box-shadow:0 1px 3px rgba(0,0,0,0.35);
+    }
+    .voice-switch[aria-checked="true"]{
+      background:rgba(34,211,238,0.16);
+      border-color:rgba(34,211,238,0.55);
+      box-shadow:0 0 10px rgba(34,211,238,0.12);
+    }
+    .voice-switch[aria-checked="true"] .knob{
+      transform:translateX(16px);
+      background:#67e8f9;
+    }
+
     .btn{
       display:flex; align-items:center; gap:10px;
       padding:11px 14px;
@@ -1181,14 +1245,14 @@
       </div>
     </aside>
 
-    <!-- ============= CENTER: AI FACE ============= -->
+    <!-- ============= CENTER: THE ORB ============= -->
     <section class="center">
       <div class="corner tl"></div>
       <div class="corner tr"></div>
       <div class="corner bl"></div>
       <div class="corner br"></div>
 
-      <canvas id="orbCanvas" aria-label="AURA voxel face"></canvas>
+      <canvas id="orbCanvas"></canvas>
 
       <div class="rings rings-soft">
         <!-- ring 1 -->
@@ -1328,7 +1392,7 @@
         <div id="chatContainer">
           <div class="transcript-empty" id="transcriptEmpty">
             <strong>Start a voice chat</strong>
-            Tap <em>Speak</em>, talk naturally, then tap <em>Stop</em>. While AURA is answering, just start talking to interrupt.
+            Tap <em>Speak</em>, or turn on <em>Auto-listen</em> and talk naturally.
           </div>
         </div>
       </div>
@@ -1351,6 +1415,18 @@
         <button id="clearBtn" class="btn btn-clear">
           <span class="icon"></span>Clear chat<span class="key">C</span>
         </button>
+
+        <div class="voice-auto-row" title="When on, AURA listens continuously and only sends speech to ASR">
+          <div class="voice-auto-meta">
+            <span class="voice-auto-label">Auto-listen</span>
+            <span class="voice-auto-hint" id="voiceAutoHint">Off</span>
+          </div>
+          <button type="button" class="voice-switch" id="voiceAutoSwitch"
+                  role="switch" aria-checked="false" aria-label="Auto-listen">
+            <span class="knob" aria-hidden="true"></span>
+          </button>
+        </div>
+
         <label style="margin-top:10px; font-size:12px; opacity:0.85;
                       letter-spacing:0.4px; display:flex; align-items:center;
                       gap:6px;">
@@ -1378,14 +1454,14 @@
 
   </div>
 
-  <!-- Three.js for the 3D face -->
+  <!-- Three.js for the 3D orb -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <!-- Socket.IO client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <!-- Runtime endpoints (ASR / TTS) -->
   <script src="config.js"></script>
-  <!-- Voxel AI face -->
-  <script src="ai_face.js"></script>
+  <!-- Auto-listen / VAD -->
+  <script src="voice_auto.js"></script>
   <!-- Main app -->
   <script src="app.js"></script>
 
