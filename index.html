@@ -483,7 +483,7 @@
     }
 
     /* ============================================================
-       CENTER -- THE ORB
+       CENTER -- VOXEL AI FACE
     ============================================================ */
     .center{
       grid-area:center;
@@ -498,14 +498,17 @@
       position:absolute;
       width:100%; height:100%;
       top:0; left:0;
+      z-index:2;
     }
 
     .rings{
       position:absolute;
-      width: min(560px, 70vh);
-      height:min(560px, 70vh);
+      width: min(620px, 78vh);
+      height:min(620px, 78vh);
       pointer-events:none;
+      z-index:1;
     }
+    .rings-soft{ opacity:0.4; }
     .rings svg{
       position:absolute;
       inset:0;
@@ -1178,52 +1181,31 @@
       </div>
     </aside>
 
-    <!-- ============= CENTER: THE ORB ============= -->
+    <!-- ============= CENTER: AI FACE ============= -->
     <section class="center">
       <div class="corner tl"></div>
       <div class="corner tr"></div>
       <div class="corner bl"></div>
       <div class="corner br"></div>
 
-      <canvas id="orbCanvas"></canvas>
+      <canvas id="orbCanvas" aria-label="AURA voxel face"></canvas>
 
-      <div class="rings">
+      <div class="rings rings-soft">
         <!-- ring 1 -->
         <svg class="ring-rot-slow" viewBox="0 0 200 200">
           <circle cx="100" cy="100" r="96"
-                  fill="none" stroke="rgba(34,211,238,0.35)" stroke-width="0.6"
-                  stroke-dasharray="2 6"/>
-          <circle cx="100" cy="100" r="96"
-                  fill="none" stroke="rgba(34,211,238,0.55)" stroke-width="0.4"
-                  stroke-dasharray="120 360"/>
+                  fill="none" stroke="rgba(34,211,238,0.2)" stroke-width="0.5"
+                  stroke-dasharray="2 8"/>
         </svg>
         <!-- ring 2 -->
         <svg class="ring-rot-mid" viewBox="0 0 200 200">
-          <circle cx="100" cy="100" r="84"
-                  fill="none" stroke="rgba(129,140,248,0.45)" stroke-width="0.6"
-                  stroke-dasharray="1 4"/>
-          <g fill="none" stroke="rgba(34,211,238,0.55)" stroke-width="0.8">
-            <line x1="100" y1="4"   x2="100" y2="14"/>
-            <line x1="100" y1="186" x2="100" y2="196"/>
-            <line x1="4"   y1="100" x2="14"  y2="100"/>
-            <line x1="186" y1="100" x2="196" y2="100"/>
-          </g>
-        </svg>
-        <!-- ring 3 (tick marks) -->
-        <svg class="ring-rot-fast" viewBox="0 0 200 200">
-          <g fill="none" stroke="rgba(34,211,238,0.5)" stroke-width="0.5">
-            <circle cx="100" cy="100" r="72" stroke-dasharray="1 3"/>
-          </g>
-          <g fill="rgba(34,211,238,0.85)">
-            <circle cx="100" cy="28" r="1.6"/>
-            <circle cx="172" cy="100" r="1.6"/>
-            <circle cx="100" cy="172" r="1.6"/>
-            <circle cx="28"  cy="100" r="1.6"/>
-          </g>
+          <circle cx="100" cy="100" r="88"
+                  fill="none" stroke="rgba(56,189,248,0.18)" stroke-width="0.5"
+                  stroke-dasharray="1 5"/>
         </svg>
       </div>
 
-      <!-- thinking-orbit: two satellites circling the orb while LLM is busy -->
+      <!-- thinking-orbit: satellites while LLM is busy -->
       <div class="thinking-orbit" id="thinkingOrbit">
         <span class="satellite"></span>
         <span class="satellite b"></span>
@@ -1396,12 +1378,14 @@
 
   </div>
 
-  <!-- Three.js for the 3D orb -->
+  <!-- Three.js for the 3D face -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <!-- Socket.IO client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <!-- Runtime endpoints (ASR / TTS) -->
   <script src="config.js"></script>
+  <!-- Voxel AI face -->
+  <script src="ai_face.js"></script>
   <!-- Main app -->
   <script src="app.js"></script>
 
